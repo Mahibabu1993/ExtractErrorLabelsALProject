@@ -1,0 +1,182 @@
+Sub FindErrorMessages()
+Dim FolderPath As String
+Dim SelectFileDialog As filedialog
+
+Set SelectFileDialog = Application.filedialog(msoFileDialogFolderPicker)
+If SelectFileDialog.Show = -1 Then
+    FolderPath = SelectFileDialog.SelectedItems(1)
+End If
+Set SelectFileDialog = Nothing
+If FolderPath = "" Then Exit Sub
+
+ActiveWorkbook.Sheets.Add
+Cells(1, 1).Value = "File Path"
+Cells(1, 2).Value = "Object Info"
+Cells(1, 3).Value = "Error Line"
+Cells(1, 4).Value = "Error Label Declaration"
+
+Call ScanFilesAndWriteError(FolderPath)
+End Sub
+
+Function ScanFilesAndWriteError(FolderPath As String)
+Dim FSO As New FileSystemObject
+Dim MyFolder As Folder
+Dim MyFile As File
+
+Dim RowNumber As Long
+Dim i As Long
+Dim j As Long
+Dim ObjectInfo As String
+Dim TextLine As String
+Dim ErrorLine As String
+Dim ErrorDeclarations As ArrayList
+
+RowNumber = 2
+
+Set MyFolder = FSO.GetFolder(FolderPath)
+
+For Each MyFile In MyFolder.Files
+    If GetFileExtension(MyFile.Name) = "al" Then
+        ObjectInfo = GetObjectInfo(MyFile.Path)
+
+        Open MyFile.Path For Input As #1
+
+        Do Until EOF(1)
+        Line Input #1, TextLine 'Get next line from text file
+
+        ErrorLine = GetErrorLine(TextLine)
+
+        If ErrorLine <> "" And LCase(ErrorLine) <> "error();" And LCase(ErrorLine) <> "error()" Then
+            Cells(RowNumber, 1).Value = MyFile.Path
+            Cells(RowNumber, 2).Value = ObjectInfo
+            Cells(RowNumber, 3).Value = ErrorLine
+            RowNumber = RowNumber + 1
+        End If
+
+        Loop
+
+        Close #1
+    End If
+Next
+
+For i = 2 To RowNumber - 1
+    Set ErrorDeclarations = FindErrorDeclarationLines(Cells(i, 1), Cells(i, 3))
+
+    For j = 0 To ErrorDeclarations.Count - 1
+        Cells(i, j + 4).Value = ErrorDeclarations(j)
+    Next
+
+Next
+
+End Function
+
+Function GetFileExtension(Filename As String) As String
+GetFileExtension = Right(Filename, Len(Filename) - InStrRev(Filename, "."))
+End Function
+
+Function GetObjectInfo(FilePath As String) As String
+Dim FirstLine As String
+
+Open FilePath For Input As #1
+Line Input #1, FirstLine
+If InStr(FirstLine, "{") <> 0 Then
+    FirstLine = Left(FirstLine, InStr(FirstLine, "{") - 1)
+End If
+GetObjectInfo = Trim(FirstLine)
+Close #1
+End Function
+
+Function GetErrorLine(TextLine As String) As String
+Dim ErrorPositionStart As Integer
+Dim ErrorPositionEnd As Integer
+Dim ErrorLine As String
+
+ErrorPositionStart = InStr(1, TextLine, "Error(", vbTextCompare)
+
+If ErrorPositionStart = 0 Then
+    GetErrorLine = ""
+Else
+    ErrorLine = Right(TextLine, Len(TextLine) - ErrorPositionStart + 1)
+    ErrorPositionEnd = InStr(ErrorLine, ");")
+
+    If ErrorPositionEnd <> 0 Then
+        ErrorLine = Left(ErrorLine, ErrorPositionEnd + 1)
+    End If
+
+    GetErrorLine = ErrorLine
+End If
+
+End Function
+
+Function FindErrorDeclarationLines(FilePath As String, ErrorLine As String) As ArrayList
+Dim ErrorLabels As ArrayList
+Dim DeclarationLines As ArrayList
+Dim TextLine As String
+
+Dim ErrorLabel As String
+Dim ErrorDeclarationLine As String
+Dim i As Long
+
+Set DeclarationLines = New ArrayList
+Set ErrorLabels = GetErrorLabels(ErrorLine)
+
+For i = 0 To ErrorLabels.Count - 1
+    ErrorLabel = ErrorLabels(i)
+
+    Open FilePath For Input As #1
+    Do Until EOF(1)
+    Line Input #1, TextLine
+
+    ErrorDeclarationLine = GetErrorDeclarationLine(ErrorLabel, TextLine)
+    If ErrorDeclarationLine <> "" Then
+        DeclarationLines.Add ErrorDeclarationLine
+    End If
+
+    Loop
+    Close #1
+Next
+Set FindErrorDeclarationLines = DeclarationLines
+
+End Function
+
+Function GetErrorDeclarationLine(ErrorLabel As String, TextLine As String) As String
+Dim DeclarationPositionStart As Integer
+Dim ErrorDeclarationLine As String
+
+DeclarationPositionStart = InStr(1, TextLine, ErrorLabel, vbTextCompare)
+
+If DeclarationPositionStart = 0 Then
+    GetErrorDeclarationLine = ""
+Else
+    ErrorDeclarationLine = Right(TextLine, Len(TextLine) - DeclarationPositionStart + 1)
+    DeclarationPositionEnd = InStr(ErrorDeclarationLine, ";")
+
+    If DeclarationPositionEnd <> 0 Then
+        ErrorDeclarationLine = Left(ErrorDeclarationLine, DeclarationPositionEnd + 1)
+    End If
+
+    GetErrorDeclarationLine = ErrorDeclarationLine
+End If
+
+End Function
+
+Function GetErrorLabels(ErrorLine As String) As ArrayList
+Dim ErrorLabels() As String
+Dim ErrorLabel As Variant
+Dim ErrorLabelsArrayList As ArrayList
+Set ErrorLabelsArrayList = New ArrayList
+
+ErrorLine = Replace(ErrorLine, ",", "(")
+ErrorLine = Replace(ErrorLine, ")", "(")
+ErrorLine = Replace(ErrorLine, ";", "(")
+ErrorLabels = Split(ErrorLine, "(")
+
+For Each ErrorLabel In ErrorLabels
+    ErrorLabel = Trim(ErrorLabel)
+    If LCase(ErrorLabel) <> "error" And ErrorLabel <> "" And LCase(ErrorLabel) <> "strsubstno" And InStr(ErrorLabel, ".") = 0 Then
+        ErrorLabel = ErrorLabel & ":"
+        ErrorLabelsArrayList.Add (ErrorLabel)
+    End If
+Next
+Set GetErrorLabels = ErrorLabelsArrayList
+End Function
