@@ -1,3 +1,5 @@
+Dim ErrorLines As ArrayList
+
 Sub FindErrorMessages()
 Dim FolderPath As String
 Dim SelectFileDialog As filedialog
@@ -16,19 +18,18 @@ Cells(1, 3).Value = "Error Line"
 Cells(1, 4).Value = "Error Label Declaration"
 
 Call ScanFilesAndWriteError(FolderPath)
+Call AddErrorLabelDeclarations
 End Sub
 
 Function ScanFilesAndWriteError(FolderPath As String)
 Dim FSO As New FileSystemObject
 Dim MyFolder As Folder
+Dim MySubFolder As Folder
 Dim MyFile As File
 
 Dim RowNumber As Long
-Dim i As Long
-Dim j As Long
 Dim ObjectInfo As String
 Dim TextLine As String
-Dim ErrorLine As String
 Dim ErrorDeclarations As ArrayList
 
 RowNumber = 2
@@ -40,26 +41,40 @@ For Each MyFile In MyFolder.Files
         ObjectInfo = GetObjectInfo(MyFile.Path)
 
         Open MyFile.Path For Input As #1
-
         Do Until EOF(1)
         Line Input #1, TextLine 'Get next line from text file
-
-        ErrorLine = GetErrorLine(TextLine)
-
-        If ErrorLine <> "" And LCase(ErrorLine) <> "error();" And LCase(ErrorLine) <> "error()" Then
-            Cells(RowNumber, 1).Value = MyFile.Path
-            Cells(RowNumber, 2).Value = ObjectInfo
-            Cells(RowNumber, 3).Value = ErrorLine
-            RowNumber = RowNumber + 1
-        End If
+        
+        Set ErrorLines = New ArrayList
+        Call GetErrorLines(TextLine)
+        For i = 0 To ErrorLines.Count - 1
+            If ErrorLines(i) <> "" And LCase(ErrorLines(i)) <> "error();" And LCase(ErrorLines(i)) <> "error()" Then
+                Cells(RowNumber, 1).Value = MyFile.Path
+                Cells(RowNumber, 2).Value = ObjectInfo
+                Cells(RowNumber, 3).Value = ErrorLines(i)
+                RowNumber = RowNumber + 1
+            End If
+        Next
 
         Loop
-
         Close #1
+        
     End If
 Next
 
-For i = 2 To RowNumber - 1
+For Each MySubFolder In MyFolder.SubFolders
+    Call ScanFilesAndWriteError(MySubFolder.Path)
+Next
+
+End Function
+
+Function AddErrorLabelDeclarations()
+Dim NoOfRows As Long
+Dim i As Long
+Dim j As Long
+
+NoOfRows = Cells(Rows.Count, 1).End(xlUp).Row
+
+For i = 2 To NoOfRows
     Set ErrorDeclarations = FindErrorDeclarationLines(Cells(i, 1), Cells(i, 3))
 
     For j = 0 To ErrorDeclarations.Count - 1
@@ -67,7 +82,6 @@ For i = 2 To RowNumber - 1
     Next
 
 Next
-
 End Function
 
 Function GetFileExtension(Filename As String) As String
@@ -86,25 +100,25 @@ GetObjectInfo = Trim(FirstLine)
 Close #1
 End Function
 
-Function GetErrorLine(TextLine As String) As String
+Function GetErrorLines(TextLine As String)
 Dim ErrorPositionStart As Integer
 Dim ErrorPositionEnd As Integer
-Dim ErrorLine As String
 
-ErrorPositionStart = InStr(1, TextLine, "Error(", vbTextCompare)
-
-If ErrorPositionStart = 0 Then
-    GetErrorLine = ""
-Else
-    ErrorLine = Right(TextLine, Len(TextLine) - ErrorPositionStart + 1)
-    ErrorPositionEnd = InStr(ErrorLine, ");")
-
-    If ErrorPositionEnd <> 0 Then
-        ErrorLine = Left(ErrorLine, ErrorPositionEnd + 1)
+Do While TextLine <> ""
+    ErrorPositionStart = InStr(1, TextLine, "Error(", vbTextCompare)
+    If ErrorPositionStart <> 0 Then
+        TextLine = Right(TextLine, Len(TextLine) - ErrorPositionStart + 1)
+        ErrorPositionEnd = InStr(TextLine, ");")
+        If ErrorPositionEnd <> 0 Then
+            ErrorLines.Add (Left(TextLine, ErrorPositionEnd + 1))
+            TextLine = Right(TextLine, Len(TextLine) - ErrorPositionEnd + 1)
+        Else
+            TextLine = ""
+        End If
+    Else
+        TextLine = ""
     End If
-
-    GetErrorLine = ErrorLine
-End If
+Loop
 
 End Function
 
@@ -130,6 +144,8 @@ For i = 0 To ErrorLabels.Count - 1
     ErrorDeclarationLine = GetErrorDeclarationLine(ErrorLabel, TextLine)
     If ErrorDeclarationLine <> "" Then
         DeclarationLines.Add ErrorDeclarationLine
+        Close #1
+        Exit Do
     End If
 
     Loop
@@ -142,12 +158,20 @@ End Function
 Function GetErrorDeclarationLine(ErrorLabel As String, TextLine As String) As String
 Dim DeclarationPositionStart As Integer
 Dim ErrorDeclarationLine As String
+Dim MatchString As String
 
-DeclarationPositionStart = InStr(1, TextLine, ErrorLabel, vbTextCompare)
+MatchString = ErrorLabel & " Label"
+DeclarationPositionStart = InStr(1, TextLine, MatchString, vbTextCompare)
 
 If DeclarationPositionStart = 0 Then
-    GetErrorDeclarationLine = ""
-Else
+    MatchString = ErrorLabel & "Label"
+    DeclarationPositionStart = InStr(1, TextLine, MatchString, vbTextCompare)
+    If DeclarationPositionStart = 0 Then
+        GetErrorDeclarationLine = ""
+    End If
+End If
+
+If DeclarationPositionStart <> 0 Then
     ErrorDeclarationLine = Right(TextLine, Len(TextLine) - DeclarationPositionStart + 1)
     DeclarationPositionEnd = InStr(ErrorDeclarationLine, ";")
 
@@ -169,6 +193,7 @@ Set ErrorLabelsArrayList = New ArrayList
 ErrorLine = Replace(ErrorLine, ",", "(")
 ErrorLine = Replace(ErrorLine, ")", "(")
 ErrorLine = Replace(ErrorLine, ";", "(")
+ErrorLine = Replace(ErrorLine, "+", "(")
 ErrorLabels = Split(ErrorLine, "(")
 
 For Each ErrorLabel In ErrorLabels
