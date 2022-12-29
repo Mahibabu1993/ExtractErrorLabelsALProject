@@ -1,4 +1,5 @@
 Dim ErrorLines As ArrayList
+Dim RowNumber As Long
 
 Sub FindErrorMessages()
 Dim FolderPath As String
@@ -16,6 +17,7 @@ Cells(1, 1).Value = "File Path"
 Cells(1, 2).Value = "Object Info"
 Cells(1, 3).Value = "Error Line"
 Cells(1, 4).Value = "Error Label Declaration"
+RowNumber = 2
 
 Call ScanFilesAndWriteError(FolderPath)
 Call AddErrorLabelDeclarations
@@ -27,12 +29,9 @@ Dim MyFolder As Folder
 Dim MySubFolder As Folder
 Dim MyFile As File
 
-Dim RowNumber As Long
 Dim ObjectInfo As String
 Dim TextLine As String
 Dim ErrorDeclarations As ArrayList
-
-RowNumber = 2
 
 Set MyFolder = FSO.GetFolder(FolderPath)
 
@@ -71,6 +70,11 @@ Function AddErrorLabelDeclarations()
 Dim NoOfRows As Long
 Dim i As Long
 Dim j As Long
+Dim columnoffset As Integer
+Dim ErrorLabelLength As Integer
+Dim ErrorMessageEndPosition As Integer
+Dim ErrorLabel As String
+Dim ErrorMessage As String
 
 NoOfRows = Cells(Rows.Count, 1).End(xlUp).Row
 
@@ -79,6 +83,29 @@ For i = 2 To NoOfRows
 
     For j = 0 To ErrorDeclarations.Count - 1
         Cells(i, j + 4).Value = ErrorDeclarations(j)
+        
+        ErrorLabelLength = InStr(ErrorDeclarations(j), ":") - 1
+        If ErrorLabelLength <> 0 Then
+            ErrorLabel = Trim(Left(ErrorDeclarations(j), ErrorLabelLength))
+            ErrorMessage = Mid(ErrorDeclarations(j), ErrorLabelLength + 2, Len(ErrorDeclarations(j)) - ErroLabelLength)
+            ErrorMessage = Right(ErrorMessage, Len(ErrorMessage) - InStr(ErrorMessage, "'"))
+
+            If InStr(1, ErrorMessage, "Comment", vbTextCompare) <> 0 Then
+                ErrorMessage = Left(ErrorMessage, InStr(1, ErrorMessage, "Comment", vbTextCompare) - 1)
+            End If
+            
+            ErrorMessageEndPosition = InStrRev(ErrorMessage, "'")
+            If ErrorMessageEndPosition <> 0 Then
+                ErrorMessage = Trim(Left(ErrorMessage, ErrorMessageEndPosition - 1))
+            End If
+            
+            columnoffset = 0
+            Do While Cells(i, j + 10 + columnoffset).Value <> ""
+                columnoffset = columnoffset + 1
+            Loop
+            Cells(i, j + 10 + columnoffset).Value = ErrorLabel
+            Cells(i, j + 11 + columnoffset).Value = ErrorMessage
+        End If
     Next
 
 Next
